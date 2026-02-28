@@ -23,9 +23,11 @@ if 'staged_custom_rules' not in st.session_state:
 if 'staged_adv_formula' not in st.session_state:
     st.session_state.staged_adv_formula = None
 
-base_dir = r"E:\INFORMATION TECHNOLOGY\PYTHON\ANALYSIS BASE ON CRITERIA"
-master_file_path = os.path.join(base_dir, "Master_Dealer_File.xlsx")
-ledger_file_path = os.path.join(base_dir, "Sales_Ledger_Template.xlsx")
+# ==========================================
+# FIXED FOR CLOUD: REMOVED LOCAL "E:\" DRIVE PATH
+# ==========================================
+master_file_path = "Master_Dealer_File.xlsx"
+ledger_file_path = "Sales_Ledger_Template.xlsx"
 
 def load_local_file(filepath):
     try:
