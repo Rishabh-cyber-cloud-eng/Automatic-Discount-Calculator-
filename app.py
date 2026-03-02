@@ -17,23 +17,35 @@ st.divider()
 if 'merged_df' not in st.session_state:
     st.session_state.merged_df = None
 if 'available_cols' not in st.session_state:
-    st.session_state.available_cols = ["(Upload data to see columns)"] # Fallback for Step 4
+    st.session_state.available_cols = ["(Upload data to see columns)"] 
 if 'staged_custom_rules' not in st.session_state:
     st.session_state.staged_custom_rules = pd.DataFrame()
 if 'staged_adv_formula' not in st.session_state:
     st.session_state.staged_adv_formula = None
-if 'file_history' not in st.session_state:
-    st.session_state.file_history = {} # Dictionary to store uploaded file names and bytes
+
+# ==========================================
+# SERVER-SIDE STORAGE SETUP (Survives Refresh)
+# ==========================================
+UPLOAD_DIR = "uploaded_files"
+# Create the directory if it doesn't exist
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
 
 # ==========================================
 # SIDEBAR: PREVIOUS UPLOADS HISTORY
 # ==========================================
 st.sidebar.header("📁 Previous Uploads")
-st.sidebar.markdown("Record of files uploaded in this session:")
+st.sidebar.markdown("Files saved on the server (Survives Refresh):")
 
-if st.session_state.file_history:
-    for fname, fbytes in st.session_state.file_history.items():
-        # Determine MIME type roughly based on extension
+# Scan the actual folder on the server for saved files
+saved_files = os.listdir(UPLOAD_DIR)
+
+if saved_files:
+    for fname in saved_files:
+        file_path = os.path.join(UPLOAD_DIR, fname)
+        with open(file_path, "rb") as f:
+            fbytes = f.read()
+            
         mime_type = "text/csv" if fname.endswith('.csv') else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         st.sidebar.download_button(
             label=f"⬇️ {fname}",
@@ -50,6 +62,7 @@ else:
 # ==========================================
 master_file_path = "Master_Dealer_File.xlsx"
 ledger_file_path = "Sales_Ledger_Template.xlsx"
+policy_file_path = "Discount policy.pdf" # Exact match with your GitHub repo!
 
 def load_local_file(filepath):
     try:
@@ -59,27 +72,48 @@ def load_local_file(filepath):
         return None
 
 # ==========================================
-# STEP 1: DOWNLOAD TEMPLATES (Always Visible)
+# STEP 1: DOWNLOAD TEMPLATES & POLICY (Always Visible)
 # ==========================================
-with st.expander("📁 STEP 1: Download Formatting Templates", expanded=False):
+with st.expander("📁 STEP 1: Download Discount Policy & Formatting Templates", expanded=True):
+    
+    # --- PROMINENT POLICY DOWNLOAD BOX ---
+    st.info("📄 **FY26 Global Trade Discount Policy**\n\nPlease review the standard policy and settlement rules before proceeding to the calculation engine.")
+    policy_bytes = load_local_file(policy_file_path)
+    
+    if policy_bytes:
+        st.download_button(
+            label="📥 Click Here to Download Discount Policy", 
+            data=policy_bytes, 
+            file_name="Discount policy.pdf", 
+            mime="application/pdf", 
+            type="primary", 
+            use_container_width=True
+        )
+    else:
+        st.warning("⚠️ 'Discount policy.pdf' not found on the server. Please ensure the filename matches exactly.")
+        
+    st.divider()
+    st.markdown("Use these sample templates to test the app's functionality:")
+    
+    # --- TEMPLATE DOWNLOAD BOXES ---
     col_t1, col_t2 = st.columns(2)
     master_bytes = load_local_file(master_file_path)
     ledger_bytes = load_local_file(ledger_file_path)
     
     with col_t1:
         if master_bytes:
-            st.download_button("📥 Download Master Dealer Template", data=master_bytes, file_name="Master_Dealer_File.xlsx", mime="application/vnd.ms-excel")
+            st.download_button("📥 Download Master Dealer Template", data=master_bytes, file_name="Master_Dealer_File.xlsx", mime="application/vnd.ms-excel", use_container_width=True)
         else:
             st.warning("Master_Dealer_File.xlsx not found in directory.")
             
     with col_t2:
         if ledger_bytes:
-            st.download_button("📥 Download Sales Ledger Template", data=ledger_bytes, file_name="Sales_Ledger_Template.xlsx", mime="application/vnd.ms-excel")
+            st.download_button("📥 Download Sales Ledger Template", data=ledger_bytes, file_name="Sales_Ledger_Template.xlsx", mime="application/vnd.ms-excel", use_container_width=True)
         else:
             st.warning("Sales_Ledger_Template.xlsx not found in directory.")
 
 # ==========================================
-# STEP 2: UPLOAD & REVIEW DATA (Always Visible)
+# STEP 2: UPLOAD & REVIEW DATA
 # ==========================================
 st.subheader("📊 STEP 2: Upload & Review Data")
 col_u1, col_u2 = st.columns(2)
@@ -91,14 +125,20 @@ with col_u2:
 master_df = None
 ledger_df = None
 
-# Save to history if newly uploaded
-if master_file and master_file.name not in st.session_state.file_history:
-    st.session_state.file_history[master_file.name] = master_file.getvalue()
-    st.rerun() # Refresh to show in sidebar
+# Save uploaded files physically to the server folder
+if master_file:
+    file_path = os.path.join(UPLOAD_DIR, master_file.name)
+    if not os.path.exists(file_path): # Only save if it's not already there
+        with open(file_path, "wb") as f:
+            f.write(master_file.getbuffer())
+        st.rerun() # Refresh app to update sidebar
 
-if ledger_file and ledger_file.name not in st.session_state.file_history:
-    st.session_state.file_history[ledger_file.name] = ledger_file.getvalue()
-    st.rerun() # Refresh to show in sidebar
+if ledger_file:
+    file_path = os.path.join(UPLOAD_DIR, ledger_file.name)
+    if not os.path.exists(file_path):
+        with open(file_path, "wb") as f:
+            f.write(ledger_file.getbuffer())
+        st.rerun()
 
 if master_file and ledger_file:
     master_df = pd.read_excel(master_file) if master_file.name.endswith('.xlsx') else pd.read_csv(master_file)
@@ -122,7 +162,7 @@ if master_file and ledger_file:
 st.divider()
 
 # ==========================================
-# STEP 3: DYNAMIC VLOOKUP MAPPER (Header Visible, Content Locked)
+# STEP 3: DYNAMIC VLOOKUP MAPPER
 # ==========================================
 st.subheader("🔗 STEP 3: Excel-Style VLOOKUP Builder")
 st.markdown("Map columns from your Master File into your Sales Ledger. *(`Dealer_Tier` is merged automatically).*")
@@ -171,7 +211,7 @@ else:
 st.divider()
 
 # ==========================================
-# STEP 4: RULES ENGINE DASHBOARD (Completely Visible Now)
+# STEP 4: RULES ENGINE DASHBOARD 
 # ==========================================
 st.subheader("⚙️ STEP 4: Configure Computing Engine")
 st.markdown("Configure your standard policies and custom stacking rules below.")
@@ -245,7 +285,7 @@ with tab3:
 st.divider()
 
 # ==========================================
-# STEP 5: COMPUTATION ENGINE (Header Visible, Content Locked)
+# STEP 5: COMPUTATION ENGINE 
 # ==========================================
 st.subheader("🚀 STEP 5: Execution")
 
